@@ -1,47 +1,33 @@
-/**
- * Chat API – calls the backend query_sse endpoint and parses Server-Sent Events.
- * Backend sends event-typed SSE:
- *   event: thread_id  → data: {"thread_id", "memory_key"}
- *   event: route     → data: {"route", "node"}
- *   event: answer    → data: {"answer", "node"}  ← text shown in UI
- *   event: status   → data: {"key", "value", "node"}
- */
-
-const DEFAULT_BASE_URL = "http://localhost:8019";
+const DEFAULT_BASE_URL = "http://localhost:8019/query_sse";
 
 export interface QuerySseParams {
   user_id: string;
   question: string;
-  /** Pass from previous response to continue the same thread. */
+
   thread_id: string;
-  /** Optional: pass memory_key from thread_id event if your backend uses it. */
+
   memory_key?: string;
 }
 
-/** Metadata the backend can send (e.g. chart_type, suggestions in a separate event or in answer payload). */
 export interface QuerySseMetadata {
   chart_type?: string;
   suggestions?: string[];
 }
-
-/** Thread info from event: thread_id – use for the next request in the same conversation. */
 export interface ThreadInfo {
   thread_id: string;
   memory_key?: string;
 }
 
 export interface QuerySseCallbacks {
-  /** Each chunk of answer text (from event: answer). Multiple events may be sent; we use the last answer as final. */
   onChunk?: (text: string) => void;
-  /** Called once when the stream ends. fullText is the last answer; metadata optional. */
+
   onComplete?: (fullText: string, metadata?: QuerySseMetadata) => void;
-  /** Called when event: thread_id is received. Use thread_id (and memory_key) for the next request. */
+
   onThreadId?: (info: ThreadInfo) => void;
-  /** Called for each event: route (e.g. "root_cause" -> "direct_answer"). Optional for progress/debug. */
   onRoute?: (route: string, node: string) => void;
-  /** Called for each event: status. Optional. */
+
   onStatus?: (key: string, value: number, node: string) => void;
-  /** Called on stream or network error. */
+
   onError?: (error: Error) => void;
 }
 
@@ -60,28 +46,23 @@ function parseJsonLine(line: string): Record<string, unknown> | null {
   if (payload === "" || payload === "[DONE]") return null;
   try {
     const parsed = JSON.parse(payload);
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
 }
 
-/**
- * Parses SSE stream with event types.
- * Format:
- *   event: thread_id
- *   data: {"thread_id": "...", "memory_key": "..."}
- *   event: answer
- *   data: {"answer": "Hello...", "node": "direct_answer"}
- */
 export async function querySse(
   params: QuerySseParams,
-  callbacks: QuerySseCallbacks
+  callbacks: QuerySseCallbacks,
 ): Promise<void> {
   const baseUrl = getBaseUrl();
   const url = `${baseUrl.replace(/\/$/, "")}/query_sse`;
 
-  const { onChunk, onComplete, onThreadId, onRoute, onStatus, onError } = callbacks;
+  const { onChunk, onComplete, onThreadId, onRoute, onStatus, onError } =
+    callbacks;
 
   try {
     const response = await fetch(url, {
@@ -95,7 +76,9 @@ export async function querySse(
     });
 
     if (!response.ok) {
-      throw new Error(`query_sse failed: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `query_sse failed: ${response.status} ${response.statusText}`,
+      );
     }
 
     const reader = response.body?.getReader();
@@ -121,8 +104,10 @@ export async function querySse(
 
         switch (currentEvent) {
           case "thread_id": {
-            const thread_id = typeof data.thread_id === "string" ? data.thread_id : undefined;
-            const memory_key = typeof data.memory_key === "string" ? data.memory_key : undefined;
+            const thread_id =
+              typeof data.thread_id === "string" ? data.thread_id : undefined;
+            const memory_key =
+              typeof data.memory_key === "string" ? data.memory_key : undefined;
             if (thread_id) onThreadId?.({ thread_id, memory_key });
             break;
           }
@@ -139,8 +124,15 @@ export async function querySse(
               onChunk?.(answer);
             }
             if (data.chart_type != null || data.suggestions != null) {
-              if (typeof data.chart_type === "string") metadata = { ...metadata, chart_type: data.chart_type };
-              if (Array.isArray(data.suggestions)) metadata = { ...metadata, suggestions: data.suggestions.filter((s): s is string => typeof s === "string") };
+              if (typeof data.chart_type === "string")
+                metadata = { ...metadata, chart_type: data.chart_type };
+              if (Array.isArray(data.suggestions))
+                metadata = {
+                  ...metadata,
+                  suggestions: data.suggestions.filter(
+                    (s): s is string => typeof s === "string",
+                  ),
+                };
             }
             break;
           }
